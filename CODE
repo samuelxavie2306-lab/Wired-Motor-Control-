@@ -1,0 +1,619 @@
+#define BLYNK_TEMPLATE_ID "TMPL3Aey7ttlh"
+#define BLYNK_TEMPLATE_NAME "water controller"
+#define BLYNK_AUTH_TOKEN "YDJ_TToE4k-kYS1CqGtQofM7yvXT6khS"
+
+#include <WiFi.h>
+#include <BlynkSimpleEsp32.h>
+
+// =====================================================
+// WIFI CREDENTIALS
+// =====================================================
+
+char ssid[] = "Airtel_xavi_9172";
+char pass[] = "air86274";
+
+
+// =====================================================
+// FLOAT SWITCH PINS
+// =====================================================
+
+#define SALT_FLOAT 32
+#define GOOD_FLOAT 33
+
+
+// =====================================================
+// RELAY PINS
+// =====================================================
+
+#define SALT_RELAY 27
+#define GOOD_RELAY 26
+
+
+// =====================================================
+// RELAY LOGIC
+// Most relay modules are ACTIVE LOW
+// =====================================================
+
+#define RELAY_ON  LOW
+#define RELAY_OFF HIGH
+
+
+// =====================================================
+// MOTOR STATUS
+// =====================================================
+
+bool saltMotor = false;
+bool goodMotor = false;
+
+
+// =====================================================
+// TANK STATUS
+// =====================================================
+
+// true  = FULL
+// false = EMPTY
+
+bool saltFull = false;
+bool goodFull = false;
+
+
+// =====================================================
+// MODE
+// =====================================================
+
+// false = MANUAL
+// true  = AUTOMATIC
+
+bool autoMode = false;
+
+
+// =====================================================
+// FUNCTION DECLARATIONS
+// =====================================================
+
+void setSaltMotor(bool state);
+void setGoodMotor(bool state);
+void automaticControl();
+void readFloats();
+
+
+// =====================================================
+// SALT MOTOR CONTROL
+// =====================================================
+
+void setSaltMotor(bool state)
+{
+  // Safety:
+  // Salt motor cannot run if tank is full
+
+  if (state && saltFull)
+  {
+    state = false;
+
+    Serial.println("Salt tank FULL - Motor blocked");
+  }
+
+  saltMotor = state;
+
+  digitalWrite(
+    SALT_RELAY,
+    saltMotor ? RELAY_ON : RELAY_OFF
+  );
+
+  // Update Blynk
+  Blynk.virtualWrite(V1, saltMotor ? 1 : 0);
+
+  Serial.print("Salt Motor: ");
+  Serial.println(saltMotor ? "ON" : "OFF");
+}
+
+
+// =====================================================
+// GOOD WATER MOTOR CONTROL
+// =====================================================
+
+void setGoodMotor(bool state)
+{
+  // Safety:
+  // Good motor cannot run if tank is full
+
+  if (state && goodFull)
+  {
+    state = false;
+
+    Serial.println("Good tank FULL - Motor blocked");
+  }
+
+  goodMotor = state;
+
+  digitalWrite(
+    GOOD_RELAY,
+    goodMotor ? RELAY_ON : RELAY_OFF
+  );
+
+  // Update Blynk
+  Blynk.virtualWrite(V2, goodMotor ? 1 : 0);
+
+  Serial.print("Good Motor: ");
+  Serial.println(goodMotor ? "ON" : "OFF");
+}
+
+
+// =====================================================
+// BLYNK V1
+// SALT WATER MOTOR
+// =====================================================
+
+BLYNK_WRITE(V1)
+{
+  int value = param.asInt();
+
+  Serial.print("Salt Motor Blynk Command: ");
+  Serial.println(value);
+
+
+  // ===================================================
+  // AUTOMATIC MODE
+  // ===================================================
+
+  if (autoMode)
+  {
+    Serial.println("AUTO MODE - Salt manual control disabled");
+
+    // Restore actual motor status on Blynk
+    Blynk.virtualWrite(V1, saltMotor ? 1 : 0);
+
+    return;
+  }
+
+
+  // ===================================================
+  // MANUAL MODE
+  // ===================================================
+
+  if (value == 1)
+  {
+    // User wants Salt Motor ON
+
+    if (!saltFull)
+    {
+      setSaltMotor(true);
+    }
+    else
+    {
+      // Tank is full
+      setSaltMotor(false);
+
+      Serial.println("Cannot start Salt Motor - Tank FULL");
+    }
+  }
+  else
+  {
+    // User wants motor OFF
+    setSaltMotor(false);
+  }
+}
+
+
+// =====================================================
+// BLYNK V2
+// GOOD WATER MOTOR
+// =====================================================
+
+BLYNK_WRITE(V2)
+{
+  int value = param.asInt();
+
+  Serial.print("Good Motor Blynk Command: ");
+  Serial.println(value);
+
+
+  // ===================================================
+  // AUTOMATIC MODE
+  // ===================================================
+
+  if (autoMode)
+  {
+    Serial.println("AUTO MODE - Good manual control disabled");
+
+    // Restore actual motor status on Blynk
+    Blynk.virtualWrite(V2, goodMotor ? 1 : 0);
+
+    return;
+  }
+
+
+  // ===================================================
+  // MANUAL MODE
+  // ===================================================
+
+  if (value == 1)
+  {
+    // User wants Good Motor ON
+
+    if (!goodFull)
+    {
+      setGoodMotor(true);
+    }
+    else
+    {
+      // Tank is full
+      setGoodMotor(false);
+
+      Serial.println("Cannot start Good Motor - Tank FULL");
+    }
+  }
+  else
+  {
+    // User wants motor OFF
+    setGoodMotor(false);
+  }
+}
+
+
+// =====================================================
+// BLYNK V3
+// AUTO / MANUAL MODE
+// =====================================================
+
+BLYNK_WRITE(V3)
+{
+  int value = param.asInt();
+
+
+  // ===================================================
+  // AUTOMATIC MODE
+  // ===================================================
+
+  if (value == 1)
+  {
+    autoMode = true;
+
+    Serial.println();
+    Serial.println("==============================");
+    Serial.println("       AUTOMATIC MODE");
+    Serial.println("==============================");
+
+
+    // Disable manual motor switches
+    Blynk.virtualWrite(V1, 0);
+    Blynk.virtualWrite(V2, 0);
+
+
+    // Immediately check tank levels
+    automaticControl();
+  }
+
+
+  // ===================================================
+  // MANUAL MODE
+  // ===================================================
+
+  else
+  {
+    autoMode = false;
+
+    Serial.println();
+    Serial.println("==============================");
+    Serial.println("         MANUAL MODE");
+    Serial.println("==============================");
+
+
+    // Stop motors when changing to Manual mode
+    setSaltMotor(false);
+    setGoodMotor(false);
+
+
+    // Make sure Blynk switches are OFF
+    Blynk.virtualWrite(V1, 0);
+    Blynk.virtualWrite(V2, 0);
+  }
+}
+
+
+// =====================================================
+// AUTOMATIC CONTROL
+// =====================================================
+
+void automaticControl()
+{
+  // Do nothing if Manual mode
+  if (!autoMode)
+  {
+    return;
+  }
+
+
+  // ===================================================
+  // SALT WATER TANK
+  // ===================================================
+
+  if (saltFull)
+  {
+    // FULL
+    // Stop Salt Motor
+
+    Serial.println("AUTO: Salt tank FULL -> Motor OFF");
+
+    setSaltMotor(false);
+  }
+  else
+  {
+    // EMPTY
+    // Start Salt Motor
+
+    Serial.println("AUTO: Salt tank EMPTY -> Motor ON");
+
+    setSaltMotor(true);
+  }
+
+
+  // ===================================================
+  // GOOD WATER TANK
+  // ===================================================
+
+  if (goodFull)
+  {
+    // FULL
+    // Stop Good Motor
+
+    Serial.println("AUTO: Good tank FULL -> Motor OFF");
+
+    setGoodMotor(false);
+  }
+  else
+  {
+    // EMPTY
+    // Start Good Motor
+
+    Serial.println("AUTO: Good tank EMPTY -> Motor ON");
+
+    setGoodMotor(true);
+  }
+}
+
+
+// =====================================================
+// READ FLOAT SWITCHES
+// =====================================================
+
+void readFloats()
+{
+  /*
+  
+  INPUT_PULLUP is used.
+
+  Float OPEN
+       ↓
+  GPIO HIGH
+       ↓
+  TANK EMPTY
+
+
+  Float CLOSED
+       ↓
+  GPIO LOW
+       ↓
+  TANK FULL
+
+  */
+
+
+  bool newSaltFull =
+    (digitalRead(SALT_FLOAT) == LOW);
+
+
+  bool newGoodFull =
+    (digitalRead(GOOD_FLOAT) == LOW);
+
+
+  // ===================================================
+  // SALT TANK STATUS CHANGED
+  // ===================================================
+
+  if (newSaltFull != saltFull)
+  {
+    saltFull = newSaltFull;
+
+    Serial.print("Salt Tank: ");
+
+    if (saltFull)
+    {
+      Serial.println("FULL");
+    }
+    else
+    {
+      Serial.println("EMPTY");
+    }
+  }
+
+
+  // ===================================================
+  // GOOD TANK STATUS CHANGED
+  // ===================================================
+
+  if (newGoodFull != goodFull)
+  {
+    goodFull = newGoodFull;
+
+    Serial.print("Good Tank: ");
+
+    if (goodFull)
+    {
+      Serial.println("FULL");
+    }
+    else
+    {
+      Serial.println("EMPTY");
+    }
+  }
+
+
+  // ===================================================
+  // SAFETY CHECK
+  // ===================================================
+
+  // Salt tank becomes FULL
+  // Stop Salt Motor immediately
+
+  if (saltFull && saltMotor)
+  {
+    Serial.println("SAFETY: Salt tank FULL");
+
+    setSaltMotor(false);
+  }
+
+
+  // Good tank becomes FULL
+  // Stop Good Motor immediately
+
+  if (goodFull && goodMotor)
+  {
+    Serial.println("SAFETY: Good tank FULL");
+
+    setGoodMotor(false);
+  }
+
+
+  // ===================================================
+  // AUTOMATIC MODE
+  // ===================================================
+
+  if (autoMode)
+  {
+    automaticControl();
+  }
+}
+
+
+// =====================================================
+// BLYNK CONNECTED
+// =====================================================
+
+BLYNK_CONNECTED()
+{
+  Serial.println("Blynk Connected");
+
+  // Get latest mode from Blynk
+  Blynk.syncVirtual(V3);
+}
+
+
+// =====================================================
+// SETUP
+// =====================================================
+
+void setup()
+{
+  Serial.begin(115200);
+
+  delay(1000);
+
+
+  // ===================================================
+  // FLOAT SWITCH SETUP
+  // ===================================================
+
+  pinMode(SALT_FLOAT, INPUT_PULLUP);
+  pinMode(GOOD_FLOAT, INPUT_PULLUP);
+
+
+  // ===================================================
+  // RELAY SETUP
+  // ===================================================
+
+  pinMode(SALT_RELAY, OUTPUT);
+  pinMode(GOOD_RELAY, OUTPUT);
+
+
+  // ===================================================
+  // IMPORTANT:
+  // KEEP BOTH MOTORS OFF AT STARTUP
+  // ===================================================
+
+  digitalWrite(SALT_RELAY, RELAY_OFF);
+  digitalWrite(GOOD_RELAY, RELAY_OFF);
+
+
+  // ===================================================
+  // READ INITIAL FLOAT STATUS
+  // ===================================================
+
+  saltFull =
+    (digitalRead(SALT_FLOAT) == LOW);
+
+  goodFull =
+    (digitalRead(GOOD_FLOAT) == LOW);
+
+
+  // ===================================================
+  // SERIAL MONITOR
+  // ===================================================
+
+  Serial.println();
+  Serial.println("==============================");
+  Serial.println("     WATER MOTOR CONTROL");
+  Serial.println("==============================");
+
+  Serial.print("Salt Tank: ");
+
+  if (saltFull)
+  {
+    Serial.println("FULL");
+  }
+  else
+  {
+    Serial.println("EMPTY");
+  }
+
+
+  Serial.print("Good Tank: ");
+
+  if (goodFull)
+  {
+    Serial.println("FULL");
+  }
+  else
+  {
+    Serial.println("EMPTY");
+  }
+
+
+  // ===================================================
+  // CONNECT TO BLYNK
+  // ===================================================
+
+  Serial.println();
+  Serial.println("Connecting to WiFi/Blynk...");
+
+  Blynk.begin(
+    BLYNK_AUTH_TOKEN,
+    ssid,
+    pass
+  );
+
+
+  Serial.println("Blynk connection established");
+
+  Serial.println();
+  Serial.println("System Ready");
+}
+
+
+// =====================================================
+// MAIN LOOP
+// =====================================================
+
+void loop()
+{
+  // Run Blynk
+  Blynk.run();
+
+
+  // Continuously read float switches
+  readFloats();
+
+
+  // Small delay for stability
+  delay(100);
+}
