@@ -1,0 +1,61 @@
+PIN CONNECTIONS 
+
+🔌 Single ESP32 — Final Pin Connections
+1. Float Switches
+Tank	Float Switch Wire 1	Float Switch Wire 2
+Salt Water Tank	ESP32 GPIO32	GND
+Good Water Tank	ESP32 GPIO33	GND
+
+No external resistors are required because the code uses INPUT_PULLUP.
+
+Salt Float:
+GPIO32 ───── Float Switch ───── GND
+
+
+Good Float:
+GPIO33 ───── Float Switch ───── GND
+2. 2-Channel Relay Module
+Relay Module	ESP32
+IN1	GPIO27
+IN2	GPIO26
+VCC	5V / VIN
+GND	GND
+ESP32                  Relay Module
+────────────────────────────────────
+GPIO27 ─────────────── IN1 → Salt Motor
+GPIO26 ─────────────── IN2 → Good Motor
+5V/VIN ─────────────── VCC
+GND ────────────────── GND
+3. Motor Relay Output
+
+Salt Water Motor — Relay 1
+
+230V LIVE ───── COM
+               │
+               └── NO ───── Salt Motor LIVE
+
+
+230V NEUTRAL ─────────────── Salt Motor NEUTRAL
+EARTH ────────────────────── Motor Earth
+
+Good Water Motor — Relay 2
+
+230V LIVE ───── COM
+               │
+               └── NO ───── Good Motor LIVE
+
+
+230V NEUTRAL ─────────────── Good Motor NEUTRAL
+EARTH ────────────────────── Motor Earth
+4. Complete ESP32 Pin Summary
+ESP32 GPIO	Connection
+GPIO26	Good Water Motor Relay IN2
+GPIO27	Salt Water Motor Relay IN1
+GPIO32	Salt Water Tank Float
+GPIO33	Good Water Tank Float
+GND	Float switches + Relay GND
+5V/VIN	Relay VCC
+
+No SX1278/LoRa is required. No transmitter or receiver. Only one ESP32.
+
+⚠️ The motor side is 230 V AC. Do not connect mains directly to the ESP32; the relay provides the switching interface. Have the mains wiring done or checked by a qualified electrician.
